@@ -153,6 +153,30 @@ body {
 
 .arena { padding: 0; overflow: hidden; line-height: 0; }
 .arena canvas { width: 100%; display: block; touch-action: none; cursor: crosshair; }
+.me { display: grid; gap: 8px; }
+.me .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-weight: 900; }
+.me .lv { font: 700 1.3rem var(--font-en); background: var(--gold); border: 3px solid var(--ink); border-radius: 4px; padding: 2px 10px; }
+.me .stats { display: flex; gap: 8px; flex-wrap: wrap; font-weight: 900; }
+.me .stats span { background: #eef4ff; border: 3px solid var(--ink); border-radius: 4px; padding: 3px 9px; font-variant-numeric: tabular-nums; }
+.mini { height: 14px; background: #fff; border: 3px solid var(--ink); border-radius: 4px; overflow: hidden; }
+.mini i { display: block; height: 100%; background: var(--gold); }
+.mini.g i { background: var(--grass); }
+.lab { display: flex; justify-content: space-between; font-size: .85rem; font-weight: 700; }
+.rw { display: grid; gap: 6px; text-align: left; width: 100%; }
+.rw div { background: #fff8d6; border: 3px solid var(--ink); border-radius: 6px; padding: 6px 10px; font-weight: 700; }
+.rw .box { background: #e8dcff; font-size: 1.05rem; }
+.rw .box .sk { font-size: 2.4rem; display: block; text-align: center; animation: pop .5s; }
+.stk { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 8px; }
+.stk span { aspect-ratio: 1; display: grid; place-items: center; font-size: 1.9rem; background: #eef4ff; border: 3px solid var(--ink); border-radius: 6px; position: relative; }
+.stk span.no { filter: grayscale(1); opacity: .35; }
+.stk span small { position: absolute; right: 2px; bottom: 0; font: 700 .65rem var(--font-en); }
+.wds { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 6px; }
+.wds span { font: 700 .95rem var(--font-en); background: #eef4ff; border: 3px solid var(--ink); border-radius: 6px; padding: 4px 8px; display: flex; justify-content: space-between; gap: 4px; }
+.wds span.ok { background: var(--gold); }
+.bdg { display: grid; gap: 6px; }
+.bdg div { border: 3px solid var(--ink); border-radius: 6px; padding: 6px 10px; font-weight: 700; background: #eef4ff; }
+.bdg div.on { background: #d9f7dd; }
+.bdg div.off { opacity: .55; }
 @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-7px); } 75% { transform: translateX(7px); } }
 @keyframes pop { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
 .pop { animation: pop .3s; }
@@ -192,6 +216,94 @@ body {
   var g = null; // 遊戲狀態
 
   try { var b = JSON.parse(localStorage.getItem("fkwi-best") || "{}"); if (b && typeof b === "object") st.best = b; } catch (e) {}
+  // 玩家進度（存在這台裝置的瀏覽器裡）
+  var STICKERS = {
+    c: ["🐣","🐸","🐙","🦊","🐼","🐨","🦁","🐧","🐢","🐝"],
+    r: ["🦄","🐲","🦖","🐬","🦋"],
+    e: ["👑","🚀","🌈"]
+  };
+  var RARE = { c: "普通", r: "稀有", e: "史詩" };
+  var TITLES = ["新手冒險家","單字小學徒","方塊射手","單字獵人","方塊勇者","單字大師","傳說英雄"];
+  var GOAL = 15, TOTAL_WORDS = 0;
+  THEMES.forEach(function (t) { TOTAL_WORDS += t.words.length; });
+  var BADGES = [
+    { id: "first", n: "🌱 第一次完成一回合", ok: function () { return pf.rounds >= 1; } },
+    { id: "combo10", n: "🔥 一次連續答對 10 題", ok: function () { return pf.maxCombo >= 10; } },
+    { id: "boss", n: "👹 打倒 BOSS", ok: function () { return pf.boss >= 1; } },
+    { id: "streak3", n: "📅 連續 3 天來練習", ok: function () { return pf.streak >= 3; } },
+    { id: "goal", n: "🎯 完成每日目標", ok: function () { return pf.goalDays >= 1; } },
+    { id: "m10", n: "📘 學會 10 個單字", ok: function () { return mastered().length >= 10; } },
+    { id: "m50", n: "🎓 學會全部單字", ok: function () { return mastered().length >= TOTAL_WORDS; } },
+    { id: "lv5", n: "⭐ 升到 Lv.5", ok: function () { return level() >= 5; } }
+  ];
+  var pf = { xp: 0, coins: 0, streak: 0, lastDay: "", day: "", today: 0, claimed: false, rounds: 0, boss: 0, maxCombo: 0, goalDays: 0, mastery: {}, stickers: {}, badges: {} };
+  try { var sp = JSON.parse(localStorage.getItem("fkwi-prof") || "{}"); if (sp && typeof sp === "object") for (var kk in sp) pf[kk] = sp[kk]; } catch (e) {}
+  function saveProf() { try { localStorage.setItem("fkwi-prof", JSON.stringify(pf)); } catch (e) {} }
+  function dayStr(d) { return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate(); }
+  (function daily() {
+    var now = new Date(), today = dayStr(now);
+    if (pf.day !== today) { pf.day = today; pf.today = 0; pf.claimed = false; }
+    if (pf.lastDay !== today) {
+      var diff = 99;
+      if (pf.lastDay) { var q = pf.lastDay.split("-"); diff = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate()) - new Date(+q[0], +q[1] - 1, +q[2])) / 864e5); }
+      pf.streak = diff === 1 ? pf.streak + 1 : 1; pf.lastDay = today; saveProf();
+    }
+  })();
+  function level() { return Math.floor(Math.sqrt(pf.xp / 60)) + 1; }
+  function mastered() { var r = []; for (var w in pf.mastery) if (pf.mastery[w] >= 3) r.push(w); return r; }
+  var snap = { m: mastered().length, lv: level() };
+  function recordCorrect(word) { pf.mastery[word] = (pf.mastery[word] || 0) + 1; pf.today++; pf.xp += 10; }
+  function rewards(score, boxOk, bossWin) {
+    var out = [], coins = Math.floor(score / 10);
+    pf.rounds++; pf.maxCombo = Math.max(pf.maxCombo, g.maxCombo);
+    if (bossWin) { pf.boss++; pf.xp += 100; coins += 30; }
+    out.push("🪙 獲得金幣 +" + coins + (bossWin ? "（含 BOSS 獎勵 +30）" : ""));
+    if (!pf.claimed && pf.today >= GOAL) { pf.claimed = true; pf.goalDays++; coins += 30; out.push("🎯 今日目標達成！金幣再 +30"); }
+    var lv = level();
+    if (lv > snap.lv) out.push("🆙 升級了！現在是 Lv." + lv + "「" + TITLES[Math.min(Math.floor((lv - 1) / 2), 6)] + "」");
+    var nm = mastered().length - snap.m;
+    if (nm > 0) out.push("✨ 新學會 " + nm + " 個單字（答對 3 次就算學會）");
+    var html = out.map(function (t) { return "<div>" + h(t) + "</div>"; }).join("");
+    if (boxOk) {
+      var r = Math.random(), tier = r < 0.05 ? "e" : r < 0.3 ? "r" : "c", list = STICKERS[tier], sk = list[Math.floor(Math.random() * list.length)];
+      var isNew = !pf.stickers[sk]; pf.stickers[sk] = (pf.stickers[sk] || 0) + 1;
+      if (!isNew) coins += 5;
+      html += '<div class="box">🎁 神祕寶箱！獲得' + RARE[tier] + '貼紙<span class="sk">' + sk + '</span>' + (isNew ? "新貼紙！已放進圖鑑" : "已經有了，換成金幣 +5") + '</div>';
+    }
+    pf.coins += coins;
+    var nb = [];
+    BADGES.forEach(function (b) { if (!pf.badges[b.id] && b.ok()) { pf.badges[b.id] = 1; nb.push(b.n); } });
+    if (nb.length) html += '<div>🏅 新徽章：' + nb.map(h).join("、") + '</div>';
+    snap = { m: mastered().length, lv: lv };
+    saveProf();
+    return '<div class="block panel"><h2>本回合獎勵</h2><div class="rw">' + html + '</div></div>';
+  }
+  function meHtml() {
+    var lv = level(), lo = 60 * (lv - 1) * (lv - 1), hi = 60 * lv * lv, pct = Math.round((pf.xp - lo) / (hi - lo) * 100);
+    var gp = Math.min(pf.today, GOAL);
+    return '<section class="block panel me"><div class="top"><span class="lv">Lv.' + lv + '</span><span>' + TITLES[Math.min(Math.floor((lv - 1) / 2), 6)] + '</span></div>' +
+      '<div><div class="lab"><span>經驗值</span><span>' + (pf.xp - lo) + ' / ' + (hi - lo) + '</span></div><div class="mini"><i style="width:' + pct + '%"></i></div></div>' +
+      '<div class="stats"><span>🪙 ' + pf.coins + '</span><span>🔥 連續 ' + pf.streak + ' 天</span><span>📒 圖鑑 ' + mastered().length + ' / ' + TOTAL_WORDS + '</span></div>' +
+      '<div><div class="lab"><span>🎯 今日目標：答對 ' + GOAL + ' 題</span><span>' + gp + ' / ' + GOAL + (pf.today >= GOAL ? " ✅ 今天做得很棒，也記得休息眼睛！" : "") + '</span></div><div class="mini g"><i style="width:' + (gp / GOAL * 100) + '%"></i></div></div>' +
+      '<button class="btn blue" id="book">📒 我的圖鑑與徽章</button></section>';
+  }
+  function book() {
+    var all = []; for (var t in STICKERS) all = all.concat(STICKERS[t]);
+    var got = all.filter(function (e) { return pf.stickers[e]; }).length;
+    app.innerHTML =
+      '<section class="block panel"><h2>🎁 貼紙收藏 ' + got + ' / ' + all.length + '</h2><div class="stk">' +
+        all.map(function (e) { var n = pf.stickers[e] || 0; return '<span class="' + (n ? "" : "no") + '">' + (n ? e : "❔") + (n > 1 ? "<small>×" + n + "</small>" : "") + '</span>'; }).join("") +
+      '</div><p class="note">打完一回合（答對 4 題以上）會開一個神祕寶箱，打倒 BOSS 也有。越稀有越難抽到！</p></section>' +
+      THEMES.map(function (t) {
+        var n = t.words.filter(function (w) { return (pf.mastery[w[0]] || 0) >= 3; }).length;
+        return '<section class="block panel"><h2>' + t.em + ' ' + t.name + ' ' + n + ' / ' + t.words.length + '</h2><div class="wds">' +
+          t.words.map(function (w) { var c = pf.mastery[w[0]] || 0; return '<span class="' + (c >= 3 ? "ok" : "") + '"><b>' + w[2] + ' ' + w[0] + '</b><i style="font-style:normal">' + Math.min(c, 3) + '/3</i></span>'; }).join("") +
+        '</div></section>';
+      }).join("") +
+      '<section class="block panel"><h2>🏅 徽章</h2><div class="bdg">' +
+        BADGES.map(function (b) { return '<div class="' + (pf.badges[b.id] ? "on" : "off") + '">' + (pf.badges[b.id] ? "✅ " : "🔒 ") + h(b.n) + '</div>'; }).join("") +
+      '</div></section><button class="btn blue" id="menu">回首頁</button>';
+  }
   function saveBest() { try { localStorage.setItem("fkwi-best", JSON.stringify(st.best)); } catch (e) {} }
 
   // 小工具
@@ -234,7 +346,7 @@ body {
     var bestKey = st.theme + ":" + st.mode;
     var best = st.best[bestKey] || 0;
     app.innerHTML =
-      '<section class="block hero"><h1>方塊單字島</h1><p>國小中年級 英文單字練習</p></section>' +
+      '<section class="block hero"><h1>方塊單字島</h1><p>國小中年級 英文單字練習</p></section>' + meHtml() +
       '<section class="block panel"><h2>1. 選擇玩法</h2><div class="grid">' +
         '<button class="chip" data-mode="shoot" aria-pressed="' + (st.mode === "shoot") + '"><span class="em">🎯</span>射擊</button>' +
         '<button class="chip" data-mode="choice" aria-pressed="' + (st.mode === "choice") + '"><span class="em">🧱</span>選擇題</button>' +
@@ -255,7 +367,7 @@ body {
     var th = themeById(st.theme);
     g = {
       theme: th, mode: st.mode,
-      qs: shuffle(th.words).slice(0, ROUND),
+      n: ROUND, boss: false, qs: shuffle(th.words).slice(0, ROUND),
       i: 0, score: 0, lives: MAX_LIVES, combo: 0, maxCombo: 0, right: 0, wrong: [],
       locked: false
     };
@@ -266,9 +378,9 @@ body {
     var hearts = "";
     for (var k = 0; k < MAX_LIVES; k++) hearts += k < g.lives ? "❤️" : "🖤";
     return '<div class="block hud"><div class="lives" aria-label="剩下 ' + g.lives + ' 顆愛心">' + hearts + '</div>' +
-      '<div class="mid">第 ' + (g.i + 1) + ' / ' + ROUND + ' 題</div>' +
+      '<div class="mid">' + (g.boss ? "👹 BOSS 血量 " + g.bossHp : "第 " + (g.i + 1) + " / " + g.n + " 題") + '</div>' +
       '<div class="score" aria-label="分數">⭐ ' + g.score + '</div></div>' +
-      '<div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="' + ROUND + '" aria-valuenow="' + g.i + '"><i style="width:' + (g.i / ROUND * 100) + '%"></i></div>' +
+      '<div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="' + g.n + '" aria-valuenow="' + g.i + '"><i style="width:' + (g.i / g.n * 100) + '%"></i></div>' +
       (st.timer ? '<div class="tbar" id="tbar"><i></i><b></b></div>' : "") +
       '<div class="combo" id="combo">' + (g.combo >= 2 ? "🔥 連續答對 " + g.combo + " 題！" : "") + '</div>';
   }
@@ -284,7 +396,7 @@ body {
     var body;
     if (g.mode === "shoot") {
       app.innerHTML = hud() + card + '<div class="block arena"><canvas id="cv"></canvas></div><div class="toast" id="toast">點擊正確的英文單字方塊來射擊！</div>';
-      startShoot(); timerStart(10); return;
+      startShoot(); timerStart(g.boss ? 9 : 10); return;
     }
     if (g.mode === "choice") {
       var others = shuffle(g.theme.words.filter(function (w) { return w[0] !== q[0]; })).slice(0, 3).map(function (w) { return w[0]; });
@@ -355,13 +467,13 @@ body {
       return {
         w: w, correct: w === q.word, bw: tw, bh: 54 * k,
         x: Math.min(Math.max(4 + cols[i] * slot + slot / 2 - tw / 2, 4), W - tw - 4),
-        y: -20 - i * 70 * k + Math.random() * 20,
+        y: g.boss ? 78 * k + Math.random() * 14 : -20 - i * 70 * k + Math.random() * 20,
         vx: (Math.random() < 0.5 ? -1 : 1) * (22 + Math.random() * 30) * k,
-        vy: (24 + g.i * 3 + Math.random() * 8) * k,
+        vy: g.boss ? (32 + g.i * 2 + Math.random() * 8) * k : (24 + g.i * 3 + Math.random() * 8) * k,
         color: COLORS[(i + g.i) % COLORS.length], alive: true
       };
     });
-    sh = { W: W, H: H, ctx: ctx, cv: cv, k: k, GROUND: GROUND, targets: targets, parts: [], shots: [], px: W / 2, py: H / 2, last: 0, shake: 0, flash: 0 };
+    sh = { bossHit: 0, W: W, H: H, ctx: ctx, cv: cv, k: k, GROUND: GROUND, targets: targets, parts: [], shots: [], px: W / 2, py: H / 2, last: 0, shake: 0, flash: 0 };
     cv.addEventListener("pointermove", function (e) { var p = pt(e); sh.px = p.x; sh.py = p.y; });
     cv.addEventListener("pointerdown", function (e) { e.preventDefault(); var p = pt(e); sh.px = p.x; sh.py = p.y; shoot(p.x, p.y); });
     raf = requestAnimationFrame(loop);
@@ -388,9 +500,14 @@ body {
     hit.alive = false; burst(hit.x + hit.bw / 2, hit.y + hit.bh / 2, hit.color, hit.correct ? 34 : 18);
     if (hit.correct) {
       g.locked = true;
-      var p = gain(15); sfx.ok(); toast("命中！+" + p + " 分", "good"); updateHud(); speak(g.q.word);
+      var p = gain(15); sfx.ok(); updateHud(); speak(g.q.word);
+      if (g.boss) {
+        g.bossHp--; sh.bossHit = 0.4; burst(sh.W / 2, 60 * sh.k, "#8b5cf6", 24); updateHud();
+        if (g.bossHp <= 0) { sh.bossDead = true; burst(sh.W / 2, 60 * sh.k, "#ffd23f", 60); burst(sh.W / 2, 60 * sh.k, "#ffffff", 40); toast("BOSS 被打倒了！！", "good"); }
+        else toast("命中 BOSS！+" + p + " 分", "good");
+      } else toast("命中！+" + p + " 分", "good");
       sh.targets.forEach(function (o) { if (o.alive) { o.alive = false; burst(o.x + o.bw / 2, o.y + o.bh / 2, "#ffffff", 8); } });
-      next(1100);
+      next(g.boss && g.bossHp <= 0 ? 1800 : 1100);
     } else {
       sh.shake = 0.25; g.combo = 0; g.lives--; sfx.no();
       if (!g.q.failed) { g.q.failed = true; g.wrong.push({ word: g.q.word, zh: g.q.zh, em: g.q.em }); }
@@ -410,6 +527,34 @@ body {
     ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
     ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
   }
+  function drawBoss(ctx, s, ts) {
+    var k = s.k, W = s.W, bob = Math.sin(ts / 350) * 4 * k, bx = W / 2 - 64 * k, by = 26 * k + bob, bw = 128 * k, bh = 84 * k;
+    var hurt = s.bossHit > 0, body = hurt ? "#ff6b5e" : "#8b5cf6", dark = hurt ? "#b73228" : "#5b34c9";
+    ctx.lineWidth = 4; ctx.strokeStyle = "#1d2433";
+    // 血量條
+    ctx.fillStyle = "#fff"; ctx.fillRect(8, 6, W - 16, 12 * k); ctx.strokeRect(8, 6, W - 16, 12 * k);
+    ctx.fillStyle = "#ff5a4d"; ctx.fillRect(10, 8, Math.max(0, (W - 20) * g.bossHp / 5), 12 * k - 4);
+    // 角、手臂
+    ctx.fillStyle = "#ffd23f";
+    [[bx + 8 * k, by - 18 * k], [bx + bw - 28 * k, by - 18 * k]].forEach(function (h) { ctx.fillRect(h[0], h[1], 20 * k, 20 * k); ctx.strokeRect(h[0], h[1], 20 * k, 20 * k); });
+    ctx.fillStyle = dark;
+    [[bx - 22 * k, by + 28 * k], [bx + bw - 2 * k, by + 28 * k]].forEach(function (a) { ctx.fillRect(a[0], a[1], 24 * k, 34 * k); ctx.strokeRect(a[0], a[1], 24 * k, 34 * k); });
+    // 身體
+    ctx.fillStyle = body; ctx.fillRect(bx, by, bw, bh); ctx.strokeRect(bx, by, bw, bh);
+    ctx.fillStyle = "rgba(255,255,255,.25)"; ctx.fillRect(bx + 6 * k, by + 6 * k, bw - 12 * k, 6 * k);
+    // 眼睛（看著準星）
+    [bx + 22 * k, bx + bw - 54 * k].forEach(function (ex) {
+      ctx.fillStyle = "#fff"; ctx.fillRect(ex, by + 22 * k, 32 * k, 28 * k); ctx.strokeRect(ex, by + 22 * k, 32 * k, 28 * k);
+      var dx = Math.max(-1, Math.min(1, (s.px - (ex + 16 * k)) / 120)) * 6 * k, dy = Math.max(-1, Math.min(1, (s.py - (by + 36 * k)) / 200)) * 4 * k;
+      ctx.fillStyle = "#1d2433"; ctx.fillRect(ex + 10 * k + dx, by + 30 * k + dy, 12 * k, 12 * k);
+    });
+    ctx.beginPath(); ctx.moveTo(bx + 18 * k, by + 14 * k); ctx.lineTo(bx + 58 * k, by + 24 * k);
+    ctx.moveTo(bx + bw - 18 * k, by + 14 * k); ctx.lineTo(bx + bw - 58 * k, by + 24 * k); ctx.stroke();
+    // 嘴巴
+    ctx.fillStyle = "#1d2433"; ctx.fillRect(bx + 28 * k, by + 58 * k, bw - 56 * k, 18 * k);
+    ctx.fillStyle = "#fff";
+    for (var i = 0; i < 4; i++) ctx.fillRect(bx + 32 * k + i * 18 * k, by + 58 * k, 10 * k, 8 * k);
+  }
   function loop(ts) {
     if (!sh) return;
     var s = sh, ctx = s.ctx, W = s.W, H = s.H, k = s.k;
@@ -421,7 +566,7 @@ body {
       if (t.x < 4) { t.x = 4; t.vx = Math.abs(t.vx); } else if (t.x + t.bw > W - 4) { t.x = W - 4 - t.bw; t.vx = -Math.abs(t.vx); }
       if (t.y + t.bh >= s.GROUND) {
         if (t.correct && !g.locked) missCorrect(t);
-        else if (!t.correct) { t.y = -t.bh - 10; }
+        else if (!t.correct) { t.y = g.boss ? 70 * k : -t.bh - 10; }
       }
     });
     s.parts.forEach(function (p) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 520 * k * dt; p.life -= dt; });
@@ -438,6 +583,8 @@ body {
     ctx.fillStyle = "#4cc35a"; ctx.fillRect(-10, s.GROUND, W + 20, 12);
     ctx.fillStyle = "#8a5a35"; ctx.fillRect(-10, s.GROUND + 12, W + 20, H - s.GROUND);
     ctx.fillStyle = "#1d2433"; ctx.fillRect(-10, s.GROUND - 2, W + 20, 3);
+    if (g.boss && !s.bossDead) drawBoss(ctx, s, ts);
+    if (s.bossHit > 0) s.bossHit -= dt;
     // 目標
     ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = "700 " + Math.round(22 * k + 2) + "px Fredoka, sans-serif";
     s.targets.forEach(function (t) {
@@ -474,7 +621,7 @@ body {
   function gain(base) {
     g.combo++; g.maxCombo = Math.max(g.maxCombo, g.combo);
     var bonus = Math.min(g.combo - 1, 5) * 2;
-    g.score += base + bonus; g.right++;
+    g.score += base + bonus; g.right++; recordCorrect(g.q.word);
     return base + bonus;
   }
   function lose() {
@@ -485,7 +632,7 @@ body {
     g.locked = true;
     setTimeout(function () {
       g.i++;
-      if (g.lives <= 0 || g.i >= ROUND) finish(); else question();
+      if (g.lives <= 0 || g.i >= g.n || (g.boss && g.bossHp <= 0)) finish(); else question();
     }, delay);
   }
 
@@ -542,8 +689,32 @@ body {
     if (q.pos >= q.word.length) { gain(5); toast("完成！下次少用提示會拿更多分", "good"); sfx.ok(); speak(q.word); updateHud(); next(1500); }
   }
 
+  function startBoss() {
+    var th = g.theme, score = g.score, combo = g.combo, maxCombo = g.maxCombo, right = g.right;
+    g = { theme: th, mode: "shoot", n: 8, boss: true, bossHp: 5, qs: shuffle(th.words).slice(0, 8), i: 0,
+      score: score, lives: MAX_LIVES, combo: combo, maxCombo: maxCombo, right: right, wrong: [], locked: false };
+    question();
+  }
+  function bossFinish() {
+    var win = g.bossHp <= 0;
+    if (win) { g.score += 100; sfx.win(); }
+    var key = st.theme + ":boss", isBest = g.score > (st.best[key] || 0);
+    if (isBest) { st.best[key] = g.score; saveBest(); }
+    var rw = rewards(g.score, win, win);
+    var review = g.wrong.length
+      ? '<div class="block panel review"><h2>需要再複習的單字</h2><ul>' + g.wrong.map(function (w) {
+          return '<li><span class="em">' + w.em + '</span><b>' + w.word + '</b><span>' + h(w.zh) + '</span></li>';
+        }).join("") + '</ul></div>' : "";
+    app.innerHTML =
+      '<section class="block result"><div class="stars">' + (win ? "👑" : "💥") + '</div>' +
+      '<div class="big">' + g.score + ' 分</div>' +
+      '<div style="font-weight:900;font-size:1.3rem">' + (win ? "BOSS 被你打倒了！（+100 分）" : "BOSS 還活著，再來挑戰！") + '</div>' +
+      (isBest ? '<div style="font-weight:900;color:var(--brick-d)">🏆 BOSS 新紀錄！</div>' : "") + '</section>' + rw + review +
+      '<div class="row"><button class="btn red" id="rematch">再挑戰 BOSS</button><button class="btn blue" id="menu">回首頁</button></div>';
+  }
   function finish() {
     stopLoop();
+    if (g.boss) return bossFinish();
     var stars = g.right >= 9 ? 3 : g.right >= 7 ? 2 : g.right >= 4 ? 1 : 0;
     var key = st.theme + ":" + st.mode, isBest = g.score > (st.best[key] || 0);
     if (isBest) { st.best[key] = g.score; saveBest(); }
@@ -552,6 +723,7 @@ body {
     var msg = dead ? "愛心用完了，再挑戰一次吧！" : stars === 3 ? "太厲害了，你是單字小英雄！" : stars === 2 ? "很棒喔，再努力一點就滿星！" : "繼續練習，你一定可以的！";
     var starStr = "";
     for (var k = 0; k < 3; k++) starStr += k < stars ? "⭐" : "☆";
+    var rw = rewards(g.score, g.right >= 4, false);
     var review = g.wrong.length
       ? '<div class="block panel review"><h2>需要再複習的單字</h2><ul>' + g.wrong.map(function (w) {
           return '<li><span class="em">' + w.em + '</span><b>' + w.word + '</b><span>' + h(w.zh) + '</span></li>';
@@ -561,7 +733,8 @@ body {
       '<div class="big">' + g.score + ' 分</div>' +
       '<div>答對 ' + g.right + ' 題・最高連續 ' + g.maxCombo + ' 題</div>' +
       (isBest ? '<div style="font-weight:900;color:var(--brick-d)">🏆 新紀錄！</div>' : "") +
-      '<div style="font-weight:700">' + msg + '</div></section>' + review +
+      '<div style="font-weight:700">' + msg + '</div></section>' + rw + review +
+      (dead ? "" : '<button class="btn red" id="boss">👹 挑戰 BOSS！</button>') +
       '<div class="row"><button class="btn" id="again">再玩一次</button><button class="btn blue" id="menu">回首頁</button></div>';
   }
 
@@ -577,6 +750,8 @@ body {
       case "snd": st.sound = !st.sound; return home();
       case "go": case "again": return start();
       case "menu": return home();
+      case "book": return book();
+      case "boss": case "rematch": return startBoss();
       case "say": return speak(g.q.word);
       case "hint": return hint();
       case "skip": if (!g.locked) { reveal(true); } return;
