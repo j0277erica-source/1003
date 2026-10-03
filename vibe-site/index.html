@@ -97,6 +97,10 @@ body {
 .hud .score { text-align: right; font-family: var(--font-en); font-weight: 700; font-size: 1.25rem; font-variant-numeric: tabular-nums; }
 .bar { height: 16px; background: #fff; border: 3px solid var(--ink); border-radius: 4px; overflow: hidden; }
 .bar i { display: block; height: 100%; width: 0; background: repeating-linear-gradient(90deg, var(--grass) 0 14px, #6fdc7c 14px 16px); transition: width .25s; }
+.tbar { position: relative; height: 22px; background: #fff; border: 3px solid var(--ink); border-radius: 4px; overflow: hidden; }
+.tbar i { display: block; height: 100%; width: 100%; background: var(--blue); transition: width .1s linear, background .2s; }
+.tbar.low i { background: var(--brick); }
+.tbar b { position: absolute; inset: 0; display: grid; place-items: center; font: 700 .85rem var(--font-en); font-variant-numeric: tabular-nums; color: var(--ink); text-shadow: 0 0 3px #fff, 0 0 3px #fff; }
 .combo { min-height: 26px; text-align: center; font-weight: 900; color: var(--brick-d); font-size: 1.05rem; }
 .card { padding: 20px 16px 18px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
 .pic { font-size: clamp(4.5rem, 24vw, 6.5rem); line-height: 1.1; }
@@ -184,7 +188,7 @@ body {
   var ROUND = 10, MAX_LIVES = 3;
 
   var app = document.getElementById("app");
-  var st = { mode: "shoot", theme: "animal", sound: true, best: {} };
+  var st = { mode: "shoot", theme: "animal", sound: true, timer: true, best: {} };
   var g = null; // 遊戲狀態
 
   try { var b = JSON.parse(localStorage.getItem("fkwi-best") || "{}"); if (b && typeof b === "object") st.best = b; } catch (e) {}
@@ -240,9 +244,10 @@ body {
         THEMES.map(function (t) { return '<button class="chip" data-theme="' + t.id + '" aria-pressed="' + (st.theme === t.id) + '"><span class="em">' + t.em + '</span>' + t.name + '</button>'; }).join("") +
       '</div></section>' +
       '<section class="block panel"><div class="best"><span>🏆 此主題最高分：<b class="en">' + best + '</b></span>' +
-        '<button class="chip" id="snd" aria-pressed="' + st.sound + '" style="flex:none;min-height:44px">' + (st.sound ? "🔊 音效開" : "🔇 音效關") + '</button></div>' +
+        '<span style="display:flex;gap:8px;flex-wrap:wrap"><button class="chip" id="tm" aria-pressed="' + st.timer + '" style="flex:none;min-height:44px">' + (st.timer ? "⏱ 倒數計時開" : "⏱ 倒數計時關") + '</button>' +
+        '<button class="chip" id="snd" aria-pressed="' + st.sound + '" style="flex:none;min-height:44px">' + (st.sound ? "🔊 音效開" : "🔇 音效關") + '</button></span></div>' +
         '<button class="btn" id="go">開始冒險！</button>' +
-        '<p class="note">每回合 ' + ROUND + ' 題，有 ' + MAX_LIVES + ' 顆愛心，連續答對有加分。點 🔊 可以聽單字發音（需要裝置支援語音朗讀）。</p></section>';
+        '<p class="note">每回合 ' + ROUND + ' 題，有 ' + MAX_LIVES + ' 顆愛心，連續答對有加分。開啟倒數計時後，每題限時（射擊 10 秒、選擇題 10 秒、拼字 25 秒），時間到會扣一顆愛心。點 🔊 可以聽單字發音（需要裝置支援語音朗讀）。</p></section>';
   }
 
   /* ---------- 遊戲流程 ---------- */
@@ -264,6 +269,7 @@ body {
       '<div class="mid">第 ' + (g.i + 1) + ' / ' + ROUND + ' 題</div>' +
       '<div class="score" aria-label="分數">⭐ ' + g.score + '</div></div>' +
       '<div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="' + ROUND + '" aria-valuenow="' + g.i + '"><i style="width:' + (g.i / ROUND * 100) + '%"></i></div>' +
+      (st.timer ? '<div class="tbar" id="tbar"><i></i><b></b></div>' : "") +
       '<div class="combo" id="combo">' + (g.combo >= 2 ? "🔥 連續答對 " + g.combo + " 題！" : "") + '</div>';
   }
 
@@ -278,7 +284,7 @@ body {
     var body;
     if (g.mode === "shoot") {
       app.innerHTML = hud() + card + '<div class="block arena"><canvas id="cv"></canvas></div><div class="toast" id="toast">點擊正確的英文單字方塊來射擊！</div>';
-      return startShoot();
+      startShoot(); timerStart(10); return;
     }
     if (g.mode === "choice") {
       var others = shuffle(g.theme.words.filter(function (w) { return w[0] !== q[0]; })).slice(0, 3).map(function (w) { return w[0]; });
@@ -294,11 +300,44 @@ body {
         '<div class="row"><button class="btn blue" id="hint">💡 提示（-5 分）</button><button class="btn ghost" id="skip">跳過這題</button></div>';
     }
     app.innerHTML = hud() + card + body + '<div class="toast" id="toast"></div>';
+    timerStart(g.mode === "spell" ? 25 : 10);
   }
 
   /* ---------- 射擊模式 ---------- */
   var raf = 0, sh = null;
-  function stopLoop() { if (raf) cancelAnimationFrame(raf); raf = 0; sh = null; }
+  function stopLoop() { if (raf) cancelAnimationFrame(raf); raf = 0; sh = null; if (tid) clearInterval(tid); tid = 0; }
+  var tid = 0;
+  function timerStart(sec) {
+    if (!st.timer) return;
+    var end = Date.now() + sec * 1000, lastSec = 99;
+    function tick() {
+      if (!g || g.locked) { clearInterval(tid); tid = 0; return; }
+      var left = Math.max(0, end - Date.now()), bar = $("#tbar"), secs = Math.ceil(left / 1000);
+      if (bar) {
+        bar.firstChild.style.width = (left / (sec * 1000) * 100) + "%";
+        bar.lastChild.textContent = secs + " 秒";
+        bar.classList.toggle("low", left < sec * 300);
+      }
+      if (secs <= 3 && secs !== lastSec && left > 0) beep([990]);
+      lastSec = secs;
+      if (left <= 0) { clearInterval(tid); tid = 0; timeUp(); }
+    }
+    if (tid) clearInterval(tid);
+    tid = setInterval(tick, 100); tick();
+  }
+  function timeUp() {
+    if (g.locked) return;
+    if (g.mode === "shoot") {
+      var t = sh && sh.targets.filter(function (o) { return o.correct; })[0];
+      if (t) missCorrect(t, "時間到！答案是 " + g.q.word);
+    } else if (g.mode === "choice") {
+      g.locked = true;
+      Array.prototype.forEach.call(app.querySelectorAll(".opt"), function (o) {
+        o.disabled = true; if (o.getAttribute("data-w") === g.q.word) o.classList.add("ok");
+      });
+      lose(); sfx.no(); toast("時間到！答案是 " + g.q.word, "no"); updateHud(); speak(g.q.word); next(1700);
+    } else { reveal(true, "時間到！答案是 " + g.q.word); }
+  }
   var COLORS = ["#ff8a5c", "#5cc8ff", "#b58cff", "#ffd23f", "#6fdc7c", "#ff7eb6"];
 
   function startShoot() {
@@ -360,11 +399,11 @@ body {
       else toast("打錯了！要找 " + g.q.zh + " 喔", "no");
     }
   }
-  function missCorrect(t) {
+  function missCorrect(t, msg) {
     g.locked = true; t.alive = false; burst(t.x + t.bw / 2, sh.GROUND, "#ff5a4d", 20);
     sh.shake = 0.3; g.combo = 0; g.lives--; sfx.no();
     if (!g.q.failed) { g.q.failed = true; g.wrong.push({ word: g.q.word, zh: g.q.zh, em: g.q.em }); }
-    toast("漏掉了！答案是 " + g.q.word, "no"); updateHud(); speak(g.q.word); next(1500);
+    toast(msg || "漏掉了！答案是 " + g.q.word, "no"); updateHud(); speak(g.q.word); next(1500);
   }
 
   function rr(ctx, x, y, w, h, r) {
@@ -482,14 +521,14 @@ body {
       if (q.miss >= 3) { reveal(true); } else toast("再試一次，下一個字母是哪個？", "no");
     }
   }
-  function reveal(loseHeart) {
+  function reveal(loseHeart, msg) {
     var q = g.q;
     g.locked = true;
     var slots = slotEls();
     for (var k = q.pos; k < q.word.length; k++) { slots[k].textContent = q.word.charAt(k); slots[k].classList.add("rev"); }
     Array.prototype.forEach.call(app.querySelectorAll(".tile"), function (t) { t.disabled = true; });
     if (loseHeart) lose();
-    toast("答案是 " + q.word, "no"); updateHud(); speak(q.word);
+    toast(msg || "答案是 " + q.word, "no"); updateHud(); speak(q.word);
     next(1900);
   }
   function hint() {
@@ -534,6 +573,7 @@ body {
     if (el.classList.contains("opt")) return answerChoice(el);
     if (el.classList.contains("tile")) return tapTile(el);
     switch (el.id) {
+      case "tm": st.timer = !st.timer; return home();
       case "snd": st.sound = !st.sound; return home();
       case "go": case "again": return start();
       case "menu": return home();
