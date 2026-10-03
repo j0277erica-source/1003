@@ -147,6 +147,8 @@ body {
 .review li .em { font-size: 1.6rem; }
 .review li b { font-family: var(--font-en); font-size: 1.15rem; }
 
+.arena { padding: 0; overflow: hidden; line-height: 0; }
+.arena canvas { width: 100%; display: block; touch-action: none; cursor: crosshair; }
 @keyframes shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-7px); } 75% { transform: translateX(7px); } }
 @keyframes pop { 0% { transform: scale(.7); } 60% { transform: scale(1.12); } 100% { transform: scale(1); } }
 .pop { animation: pop .3s; }
@@ -182,7 +184,7 @@ body {
   var ROUND = 10, MAX_LIVES = 3;
 
   var app = document.getElementById("app");
-  var st = { mode: "choice", theme: "animal", sound: true, best: {} };
+  var st = { mode: "shoot", theme: "animal", sound: true, best: {} };
   var g = null; // 遊戲狀態
 
   try { var b = JSON.parse(localStorage.getItem("fkwi-best") || "{}"); if (b && typeof b === "object") st.best = b; } catch (e) {}
@@ -224,15 +226,16 @@ body {
 
   /* ---------- 首頁 ---------- */
   function home() {
-    g = null;
+    stopLoop(); g = null;
     var bestKey = st.theme + ":" + st.mode;
     var best = st.best[bestKey] || 0;
     app.innerHTML =
       '<section class="block hero"><h1>方塊單字島</h1><p>國小中年級 英文單字練習</p></section>' +
       '<section class="block panel"><h2>1. 選擇玩法</h2><div class="grid">' +
+        '<button class="chip" data-mode="shoot" aria-pressed="' + (st.mode === "shoot") + '"><span class="em">🎯</span>射擊</button>' +
         '<button class="chip" data-mode="choice" aria-pressed="' + (st.mode === "choice") + '"><span class="em">🧱</span>選擇題</button>' +
         '<button class="chip" data-mode="spell" aria-pressed="' + (st.mode === "spell") + '"><span class="em">🔤</span>拼字</button>' +
-      '</div><p class="note">選擇題：看圖片和中文，挑出正確的英文。拼字：把字母方塊依序點成單字。</p></section>' +
+      '</div><p class="note">射擊：方塊會往下掉，快點擊正確的英文單字把它打爆！選擇題：挑出正確的英文。拼字：把字母方塊依序點成單字。</p></section>' +
       '<section class="block panel"><h2>2. 選擇主題</h2><div class="grid">' +
         THEMES.map(function (t) { return '<button class="chip" data-theme="' + t.id + '" aria-pressed="' + (st.theme === t.id) + '"><span class="em">' + t.em + '</span>' + t.name + '</button>'; }).join("") +
       '</div></section>' +
@@ -265,7 +268,7 @@ body {
   }
 
   function question() {
-    g.locked = false;
+    stopLoop(); g.locked = false;
     var q = g.qs[g.i];
     g.q = { word: q[0], zh: q[1], em: q[2], miss: 0, pos: 0, hinted: 0 };
     var card =
@@ -273,6 +276,10 @@ body {
       '<div class="zh">' + h(q[1]) + '</div>' +
       '<button class="btn ghost say" id="say" aria-label="聽發音">🔊 聽發音</button></div>';
     var body;
+    if (g.mode === "shoot") {
+      app.innerHTML = hud() + card + '<div class="block arena"><canvas id="cv"></canvas></div><div class="toast" id="toast">點擊正確的英文單字方塊來射擊！</div>';
+      return startShoot();
+    }
     if (g.mode === "choice") {
       var others = shuffle(g.theme.words.filter(function (w) { return w[0] !== q[0]; })).slice(0, 3).map(function (w) { return w[0]; });
       var opts = shuffle(others.concat(q[0]));
@@ -287,6 +294,134 @@ body {
         '<div class="row"><button class="btn blue" id="hint">💡 提示（-5 分）</button><button class="btn ghost" id="skip">跳過這題</button></div>';
     }
     app.innerHTML = hud() + card + body + '<div class="toast" id="toast"></div>';
+  }
+
+  /* ---------- 射擊模式 ---------- */
+  var raf = 0, sh = null;
+  function stopLoop() { if (raf) cancelAnimationFrame(raf); raf = 0; sh = null; }
+  var COLORS = ["#ff8a5c", "#5cc8ff", "#b58cff", "#ffd23f", "#6fdc7c", "#ff7eb6"];
+
+  function startShoot() {
+    var cv = $("#cv"), W = Math.min(app.clientWidth, 560), H = Math.round(W * 1.05);
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    cv.width = W * dpr; cv.height = H * dpr; cv.style.height = H + "px";
+    var ctx = cv.getContext("2d"); ctx.scale(dpr, dpr);
+    var q = g.q, k = W / 360, GROUND = H - 34;
+    var others = shuffle(g.theme.words.filter(function (w) { return w[0] !== q.word; })).slice(0, 3).map(function (w) { return w[0]; });
+    var words = shuffle(others.concat(q.word)), cols = shuffle([0, 1, 2, 3]);
+    ctx.font = "700 " + Math.round(22 * k + 2) + "px Fredoka, sans-serif";
+    var targets = words.map(function (w, i) {
+      var tw = Math.max(86 * k, ctx.measureText(w).width + 28);
+      var slot = (W - 8) / 4;
+      return {
+        w: w, correct: w === q.word, bw: tw, bh: 54 * k,
+        x: Math.min(Math.max(4 + cols[i] * slot + slot / 2 - tw / 2, 4), W - tw - 4),
+        y: -20 - i * 70 * k + Math.random() * 20,
+        vx: (Math.random() < 0.5 ? -1 : 1) * (22 + Math.random() * 30) * k,
+        vy: (24 + g.i * 3 + Math.random() * 8) * k,
+        color: COLORS[(i + g.i) % COLORS.length], alive: true
+      };
+    });
+    sh = { W: W, H: H, ctx: ctx, cv: cv, k: k, GROUND: GROUND, targets: targets, parts: [], shots: [], px: W / 2, py: H / 2, last: 0, shake: 0, flash: 0 };
+    cv.addEventListener("pointermove", function (e) { var p = pt(e); sh.px = p.x; sh.py = p.y; });
+    cv.addEventListener("pointerdown", function (e) { e.preventDefault(); var p = pt(e); sh.px = p.x; sh.py = p.y; shoot(p.x, p.y); });
+    raf = requestAnimationFrame(loop);
+  }
+  function pt(e) { var r = sh.cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * sh.W / r.width, y: (e.clientY - r.top) * sh.H / r.height }; }
+
+  function burst(x, y, color, n) {
+    for (var i = 0; i < n; i++) {
+      var a = Math.random() * 6.283, sp = (60 + Math.random() * 220) * sh.k;
+      sh.parts.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 40, life: 0.5 + Math.random() * 0.4, c: color, s: (4 + Math.random() * 5) * sh.k });
+    }
+  }
+  function shoot(x, y) {
+    if (!sh) return;
+    sh.shots.push({ x: x, y: y, life: 0.12 }); sh.flash = 0.08;
+    if (g.locked) return;
+    var hit = null;
+    for (var i = sh.targets.length - 1; i >= 0; i--) {
+      var t = sh.targets[i];
+      if (t.alive && x >= t.x && x <= t.x + t.bw && y >= t.y && y <= t.y + t.bh) { hit = t; break; }
+    }
+    beep([880, 440]);
+    if (!hit) { g.combo = 0; updateHud(); return; }
+    hit.alive = false; burst(hit.x + hit.bw / 2, hit.y + hit.bh / 2, hit.color, hit.correct ? 34 : 18);
+    if (hit.correct) {
+      g.locked = true;
+      var p = gain(15); sfx.ok(); toast("命中！+" + p + " 分", "good"); updateHud(); speak(g.q.word);
+      sh.targets.forEach(function (o) { if (o.alive) { o.alive = false; burst(o.x + o.bw / 2, o.y + o.bh / 2, "#ffffff", 8); } });
+      next(1100);
+    } else {
+      sh.shake = 0.25; g.combo = 0; g.lives--; sfx.no();
+      if (!g.q.failed) { g.q.failed = true; g.wrong.push({ word: g.q.word, zh: g.q.zh, em: g.q.em }); }
+      updateHud();
+      if (g.lives <= 0) { g.locked = true; toast("打錯了！答案是 " + g.q.word, "no"); next(1300); }
+      else toast("打錯了！要找 " + g.q.zh + " 喔", "no");
+    }
+  }
+  function missCorrect(t) {
+    g.locked = true; t.alive = false; burst(t.x + t.bw / 2, sh.GROUND, "#ff5a4d", 20);
+    sh.shake = 0.3; g.combo = 0; g.lives--; sfx.no();
+    if (!g.q.failed) { g.q.failed = true; g.wrong.push({ word: g.q.word, zh: g.q.zh, em: g.q.em }); }
+    toast("漏掉了！答案是 " + g.q.word, "no"); updateHud(); speak(g.q.word); next(1500);
+  }
+
+  function rr(ctx, x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function loop(ts) {
+    if (!sh) return;
+    var s = sh, ctx = s.ctx, W = s.W, H = s.H, k = s.k;
+    var dt = s.last ? Math.min((ts - s.last) / 1000, 0.05) : 0.016; s.last = ts;
+    // 更新
+    s.targets.forEach(function (t) {
+      if (!t.alive) return;
+      t.x += t.vx * dt; t.y += t.vy * dt;
+      if (t.x < 4) { t.x = 4; t.vx = Math.abs(t.vx); } else if (t.x + t.bw > W - 4) { t.x = W - 4 - t.bw; t.vx = -Math.abs(t.vx); }
+      if (t.y + t.bh >= s.GROUND) {
+        if (t.correct && !g.locked) missCorrect(t);
+        else if (!t.correct) { t.y = -t.bh - 10; }
+      }
+    });
+    s.parts.forEach(function (p) { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 520 * k * dt; p.life -= dt; });
+    s.parts = s.parts.filter(function (p) { return p.life > 0; });
+    s.shots.forEach(function (b) { b.life -= dt; }); s.shots = s.shots.filter(function (b) { return b.life > 0; });
+    if (s.shake > 0) s.shake -= dt; if (s.flash > 0) s.flash -= dt;
+    // 繪製
+    ctx.save();
+    if (s.shake > 0) ctx.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+    var sky = ctx.createLinearGradient(0, 0, 0, H); sky.addColorStop(0, "#5fb8ff"); sky.addColorStop(1, "#c9ecff");
+    ctx.fillStyle = sky; ctx.fillRect(-10, -10, W + 20, H + 20);
+    ctx.fillStyle = "rgba(255,255,255,.7)";
+    [[40, 50, 70], [210, 90, 90], [120, 170, 60]].forEach(function (c) { rr(ctx, c[0] * k, c[1] * k, c[2] * k, 18 * k, 9 * k); ctx.fill(); });
+    ctx.fillStyle = "#4cc35a"; ctx.fillRect(-10, s.GROUND, W + 20, 12);
+    ctx.fillStyle = "#8a5a35"; ctx.fillRect(-10, s.GROUND + 12, W + 20, H - s.GROUND);
+    ctx.fillStyle = "#1d2433"; ctx.fillRect(-10, s.GROUND - 2, W + 20, 3);
+    // 目標
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = "700 " + Math.round(22 * k + 2) + "px Fredoka, sans-serif";
+    s.targets.forEach(function (t) {
+      if (!t.alive) return;
+      ctx.fillStyle = "rgba(0,0,0,.25)"; rr(ctx, t.x, t.y + 5, t.bw, t.bh, 8); ctx.fill();
+      ctx.fillStyle = t.color; ctx.strokeStyle = "#1d2433"; ctx.lineWidth = 4; rr(ctx, t.x, t.y, t.bw, t.bh, 8); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "rgba(255,255,255,.35)"; ctx.fillRect(t.x + 6, t.y + 6, t.bw - 12, 6 * k);
+      ctx.fillStyle = "#1d2433"; ctx.fillText(t.w, t.x + t.bw / 2, t.y + t.bh / 2 + 3);
+    });
+    // 子彈軌跡
+    s.shots.forEach(function (b) {
+      ctx.strokeStyle = "rgba(255,230,80," + (b.life / 0.12) + ")"; ctx.lineWidth = 5 * k;
+      ctx.beginPath(); ctx.moveTo(W / 2, H); ctx.lineTo(b.x, b.y); ctx.stroke();
+    });
+    // 粒子（方塊碎片）
+    s.parts.forEach(function (p) { ctx.globalAlpha = Math.max(p.life * 2, 0); ctx.fillStyle = p.c; ctx.fillRect(p.x, p.y, p.s, p.s); }); ctx.globalAlpha = 1;
+    // 槍口與準星
+    ctx.fillStyle = "#1d2433"; rr(ctx, W / 2 - 18 * k, H - 22 * k, 36 * k, 28 * k, 5); ctx.fill();
+    ctx.fillStyle = s.flash > 0 ? "#ffe94d" : "#6b7385"; ctx.fillRect(W / 2 - 6 * k, H - 34 * k, 12 * k, 16 * k);
+    ctx.strokeStyle = "#ff3b30"; ctx.lineWidth = 3; var cx = s.px, cy = s.py, r = 14 * k;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 6.283); ctx.moveTo(cx - r - 6, cy); ctx.lineTo(cx + r + 6, cy); ctx.moveTo(cx, cy - r - 6); ctx.lineTo(cx, cy + r + 6); ctx.stroke();
+    ctx.restore();
+    raf = requestAnimationFrame(loop);
   }
 
   function toast(msg, cls) { var t = $("#toast"); if (t) { t.textContent = msg; t.className = "toast " + (cls || ""); } }
@@ -369,6 +504,7 @@ body {
   }
 
   function finish() {
+    stopLoop();
     var stars = g.right >= 9 ? 3 : g.right >= 7 ? 2 : g.right >= 4 ? 1 : 0;
     var key = st.theme + ":" + st.mode, isBest = g.score > (st.best[key] || 0);
     if (isBest) { st.best[key] = g.score; saveBest(); }
